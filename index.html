@@ -201,7 +201,15 @@ dialog p{font-size:14px;opacity:.8;margin:10px 0 0}
   /* ---------- storage + JSONBin ---------- */
   const cfg = () => { try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; } catch { return {}; } };
   const setSync = (cls, msg) => { const s = $('sync'); s.className = 'sync ' + cls; s.querySelector('span').textContent = msg; };
-  const headers = c => ({ 'Content-Type': 'application/json', 'X-Access-Key': c.key, 'X-Master-Key': c.key });
+  // Sends only one key header at a time: Access Key first, then Master Key if JSONBin rejects it.
+  async function jb(c, path, method, body) {
+    let r;
+    for (const h of ['X-Access-Key', 'X-Master-Key']) {
+      r = await fetch('https://api.jsonbin.io/v3/b/' + path, { method, headers: { 'Content-Type': 'application/json', [h]: c.key }, body });
+      if (r.status !== 401 && r.status !== 403) return r;
+    }
+    return r;
+  }
 
   function loadLocal() {
     try { const d = JSON.parse(localStorage.getItem(LS)); if (d) state = { tasks: d.tasks || [], stats: d.stats || {} }; } catch {}
@@ -210,13 +218,13 @@ dialog p{font-size:14px;opacity:.8;margin:10px 0 0}
     const c = cfg(); if (!c.bin || !c.key) return setSync('', 'Saved on this device');
     setSync('busy', 'Loading…');
     try {
-      const r = await fetch(`https://api.jsonbin.io/v3/b/${c.bin}/latest`, { headers: headers(c) });
+      const r = await jb(c, c.bin + '/latest', 'GET');
       if (!r.ok) throw new Error(r.status);
       const rec = (await r.json()).record || {};
       state = { tasks: rec.tasks || [], stats: rec.stats || {} };
       localStorage.setItem(LS, JSON.stringify(state));
       render(); setSync('ok', 'Synced');
-    } catch (e) { setSync('err', 'Sync failed, using local copy'); }
+    } catch (e) { setSync('err', 'Load failed (' + e.message + '), using local copy'); }
   }
   let saveT;
   function save() {
@@ -226,10 +234,10 @@ dialog p{font-size:14px;opacity:.8;margin:10px 0 0}
     clearTimeout(saveT);
     saveT = setTimeout(async () => {
       try {
-        const r = await fetch(`https://api.jsonbin.io/v3/b/${c.bin}`, { method: 'PUT', headers: headers(c), body: JSON.stringify(state) });
+        const r = await jb(c, c.bin, 'PUT', JSON.stringify(state));
         if (!r.ok) throw new Error(r.status);
         setSync('ok', 'Synced');
-      } catch { setSync('err', 'Not synced, saved locally'); }
+      } catch (e) { setSync('err', 'Not synced (' + e.message + '), saved locally'); }
     }, 700);
   }
 
