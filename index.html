@@ -79,6 +79,9 @@ h2::after{content:"";flex:1;border-top:1.5px dashed var(--line-soft)}
 .meta{font-family:var(--mono);font-size:11px;opacity:.6;margin-top:6px}
 .acts{display:flex;flex-direction:column;gap:4px}
 .mini{padding:2px 7px;font-size:13px;border-width:1px;font-family:var(--mono)}
+.mv{display:flex;gap:4px}
+.card[draggable=true]{cursor:grab}
+.card.drag-over{border-color:var(--cyan);box-shadow:0 -4px 0 var(--cyan)}
 .card.focused{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(143,227,255,.18)}
 .card.focused .mini.fo{background:var(--cyan);color:var(--paper-deep);border-color:var(--cyan)}
 .empty{border:1.5px dashed var(--line-soft);padding:26px;text-align:center;opacity:.8;grid-column:1/-1}
@@ -246,19 +249,44 @@ dialog p{font-size:14px;opacity:.8;margin:10px 0 0}
   const dayKey = () => new Date().toISOString().slice(0, 10);
   const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  function cardEl(t) {
+  function cardEl(t, pos) {
     const el = document.createElement('div');
     el.className = 'card' + (t.done ? ' done' : '') + (t.id === focusId ? ' focused' : '');
     el.innerHTML = `<button class="check" aria-label="${t.done ? 'Mark as not done' : 'Mark as done'}"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></svg></button>
       <div class="body"><div class="txt"></div><div class="meta"></div></div>
-      <div class="acts">${t.done ? '' : '<button class="mini fo" title="Focus on this">focus</button>'}<button class="mini del" title="Delete" aria-label="Delete task">✕</button></div>`;
+      <div class="acts">${t.done ? '' : '<button class="mini fo" title="Focus on this">focus</button><div class="mv"><button class="mini up" title="Move earlier" aria-label="Move earlier">↑</button><button class="mini dn" title="Move later" aria-label="Move later">↓</button></div>'}<button class="mini del" title="Delete" aria-label="Delete task">✕</button></div>`;
     el.querySelector('.txt').textContent = t.text;
-    el.querySelector('.meta').textContent = t.done ? 'finished ' + fmtTime(t.doneAt) : 'added ' + fmtTime(t.created);
+    el.querySelector('.meta').textContent = t.done ? 'finished ' + fmtTime(t.doneAt) : '#' + pos + ' · added ' + fmtTime(t.created);
     el.querySelector('.check').onclick = () => toggle(t.id);
     el.querySelector('.del').onclick = () => { state.tasks = state.tasks.filter(x => x.id !== t.id); if (focusId === t.id) focusId = null; save(); render(); };
+    if (!t.done) {
+      el.querySelector('.up').onclick = () => move(t.id, -1);
+      el.querySelector('.dn').onclick = () => move(t.id, 1);
+      el.draggable = true;
+      el.addEventListener('dragstart', e => { dragId = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id); el.style.opacity = .4; });
+      el.addEventListener('dragend', () => { el.style.opacity = ''; document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over')); });
+      el.addEventListener('dragover', e => { if (dragId && dragId !== t.id) { e.preventDefault(); el.classList.add('drag-over'); } });
+      el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+      el.addEventListener('drop', e => { e.preventDefault(); if (dragId && dragId !== t.id) moveBefore(dragId, t.id); dragId = null; });
+    }
     const fo = el.querySelector('.fo');
     if (fo) fo.onclick = () => { focusId = focusId === t.id ? null : t.id; render(); };
     return el;
+  }
+  let dragId = null;
+  // Order = order inside state.tasks, so existing lists keep their order and nothing needs migrating.
+  function move(id, dir) {
+    const open = state.tasks.filter(t => !t.done), i = open.findIndex(t => t.id === id), j = i + dir;
+    if (j < 0 || j >= open.length) return;
+    const a = state.tasks.indexOf(open[i]), b = state.tasks.indexOf(open[j]);
+    [state.tasks[a], state.tasks[b]] = [state.tasks[b], state.tasks[a]];
+    save(); render();
+  }
+  function moveBefore(id, targetId) {
+    const t = state.tasks.find(x => x.id === id); if (!t) return;
+    state.tasks = state.tasks.filter(x => x.id !== id);
+    state.tasks.splice(state.tasks.findIndex(x => x.id === targetId), 0, t);
+    save(); render();
   }
   function toggle(id) {
     const t = state.tasks.find(x => x.id === id); if (!t) return;
@@ -271,8 +299,8 @@ dialog p{font-size:14px;opacity:.8;margin:10px 0 0}
     const open = state.tasks.filter(t => !t.done), done = state.tasks.filter(t => t.done);
     const o = $('open'), f = $('finished'); o.innerHTML = ''; f.innerHTML = '';
     if (!open.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = state.tasks.length ? 'Everything is done. Add another task or take a break.' : 'No tasks yet. Add the first one above.'; o.appendChild(e); }
-    open.forEach(t => o.appendChild(cardEl(t)));
-    done.sort((a, b) => b.doneAt - a.doneAt).forEach(t => f.appendChild(cardEl(t)));
+    open.forEach((t, i) => o.appendChild(cardEl(t, i + 1)));
+    done.sort((a, b) => b.doneAt - a.doneAt).forEach(t => f.appendChild(cardEl(t, 0)));
     $('doneHead').hidden = !done.length;
     const n = state.tasks.length, pct = n ? Math.round(done.length / n * 100) : 0;
     $('pLabel').textContent = `${done.length} of ${n} done`; $('pPct').textContent = pct + '%'; $('pBar').style.width = pct + '%';
