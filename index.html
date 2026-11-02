@@ -80,6 +80,16 @@ h2::after{content:"";flex:1;border-top:1.5px dashed var(--line-soft)}
 .acts{display:flex;flex-direction:column;gap:4px}
 .mini{padding:2px 7px;font-size:13px;border-width:1px;font-family:var(--mono)}
 .mv{display:flex;gap:4px}
+.prog{display:flex;align-items:center;gap:8px;margin-top:10px}
+.prog output{font-family:var(--mono);font-size:11px;width:34px;text-align:right;opacity:.85}
+.prog input{flex:1;min-width:0;-webkit-appearance:none;appearance:none;height:18px;background:transparent;cursor:pointer;margin:0;
+  --p:0%}
+.prog input::-webkit-slider-runnable-track{height:8px;border:1.5px solid var(--line);
+  background:linear-gradient(90deg,var(--cyan) var(--p),transparent var(--p))}
+.prog input::-moz-range-track{height:5px;border:1.5px solid var(--line);background:transparent}
+.prog input::-moz-range-progress{height:5px;background:var(--cyan)}
+.prog input::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:20px;margin-top:-7px;background:var(--line);border:2px solid var(--paper-deep);border-radius:0}
+.prog input::-moz-range-thumb{width:10px;height:16px;background:var(--line);border:2px solid var(--paper-deep);border-radius:0}
 .card[draggable=true]{cursor:grab}
 .card.drag-over{border-color:var(--cyan);box-shadow:0 -4px 0 var(--cyan)}
 .card.focused{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(143,227,255,.18)}
@@ -253,13 +263,22 @@ dialog p{font-size:14px;opacity:.8;margin:10px 0 0}
     const el = document.createElement('div');
     el.className = 'card' + (t.done ? ' done' : '') + (t.id === focusId ? ' focused' : '');
     el.innerHTML = `<button class="check" aria-label="${t.done ? 'Mark as not done' : 'Mark as done'}"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></svg></button>
-      <div class="body"><div class="txt"></div><div class="meta"></div></div>
+      <div class="body"><div class="txt"></div><div class="meta"></div>${t.done ? '' : '<div class="prog"><input type="range" min="0" max="100" step="5" aria-label="Progress on this task"><output></output></div>'}</div>
       <div class="acts">${t.done ? '' : '<button class="mini fo" title="Focus on this">focus</button><div class="mv"><button class="mini up" title="Move earlier" aria-label="Move earlier">↑</button><button class="mini dn" title="Move later" aria-label="Move later">↓</button></div>'}<button class="mini del" title="Delete" aria-label="Delete task">✕</button></div>`;
     el.querySelector('.txt').textContent = t.text;
     el.querySelector('.meta').textContent = t.done ? 'finished ' + fmtTime(t.doneAt) : '#' + pos + ' · added ' + fmtTime(t.created);
     el.querySelector('.check').onclick = () => toggle(t.id);
     el.querySelector('.del').onclick = () => { state.tasks = state.tasks.filter(x => x.id !== t.id); if (focusId === t.id) focusId = null; save(); render(); };
     if (!t.done) {
+      // progress slider: 'progress' is optional, tasks saved before this feature simply count as 0%
+      const rg = el.querySelector('input[type=range]'), out = el.querySelector('output');
+      const show = v => { out.textContent = v + '%'; rg.style.setProperty('--p', v + '%'); };
+      rg.value = t.progress || 0; show(rg.value);
+      rg.addEventListener('pointerdown', () => { el.draggable = false; });
+      const back = () => { el.draggable = true; };
+      rg.addEventListener('pointerup', back); rg.addEventListener('pointercancel', back);
+      rg.addEventListener('input', () => { t.progress = +rg.value; show(rg.value); });
+      rg.addEventListener('change', () => { save(); if (+rg.value === 100) toast('Fully done? Tick the circle to finish it.'); });
       el.querySelector('.up').onclick = () => move(t.id, -1);
       el.querySelector('.dn').onclick = () => move(t.id, 1);
       el.draggable = true;
